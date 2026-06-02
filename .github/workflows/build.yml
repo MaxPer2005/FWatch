@@ -1,0 +1,57 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build (gcc)
+        run: |
+          gcc -std=c2x -O2 -Wall -Wextra -o sync \
+            src/main.c src/relay.c src/client.c src/net.c src/input_stub.c -lpthread
+          ./sync || true   # без аргументов печатает usage (rc=2) — проверка, что бинарь рабочий
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sync-linux
+          path: sync
+
+  macos-client:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build (clang)
+        run: |
+          clang -std=c23 -O2 -Wall -Wextra -o sync \
+            src/main.c src/relay.c src/client.c src/net.c src/input_macos.c \
+            -framework ApplicationServices
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sync-macos
+          path: sync
+
+  windows-client:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc
+      - name: build (mingw gcc)
+        run: |
+          gcc -std=c2x -O2 -Wall -Wextra -o sync.exe \
+            src/main.c src/relay.c src/client.c src/net.c src/input_windows.c -lws2_32
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sync-windows
+          path: sync.exe

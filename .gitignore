@@ -1,0 +1,9 @@
+# build artifacts
+/build/
+/sync
+/sync.exe
+*.o
+*.obj
+
+# macOS
+.DS_Store
