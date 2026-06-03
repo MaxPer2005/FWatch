@@ -11,4 +11,9 @@ int client_run(const char *server_ip, const char *port);
 // Без сети. Для проверки платформенного слоя.
 int client_run_test(void);
 
+// Режим "хост": поднимает relay в фоне на указанном порту и одновременно
+// работает клиентом, подключённым к 127.0.0.1. Второй участник подключается
+// к этому хосту как обычный client по его адресу (например, Tailscale 100.x).
+int client_run_host(const char *port);
+
 #endif // CLIENT_H

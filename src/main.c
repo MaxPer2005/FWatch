@@ -11,10 +11,11 @@
 static void usage(const char *prog) {
     fprintf(stderr,
             "использование:\n"
-            "  %s relay <port>              запустить relay-сервер\n"
+            "  %s host <port>               relay + клиент в одном (для P2P/Tailscale)\n"
+            "  %s relay <port>              запустить только relay-сервер\n"
             "  %s client <server_ip> <port> подключиться к relay и синхронизировать пробел\n"
             "  %s test                      локальный тест платформенного слоя\n",
-            prog, prog, prog);
+            prog, prog, prog, prog);
 }
 
 int main(int argc, char **argv) {
@@ -33,6 +34,14 @@ int main(int argc, char **argv) {
             return 2;
         }
         return relay_run(argv[2]);
+    }
+
+    if (strcmp(argv[1], "host") == 0) {
+        if (argc != 3) {
+            usage(argv[0]);
+            return 2;
+        }
+        return client_run_host(argv[2]);
     }
 
     if (strcmp(argv[1], "client") == 0) {

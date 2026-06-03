@@ -1,6 +1,7 @@
 #include "client.h"
 #include "input.h"
 #include "net.h"
+#include "relay.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -230,4 +231,48 @@ int client_run_test(void) {
     fflush(stdout);
     input_run_loop();
     return 0;
+}
+
+// Фоновый поток с relay-сервером для режима "хост".
+static char g_host_port[32];
+
+#ifdef _WIN32
+static DWORD WINAPI relay_thread_main(LPVOID arg) {
+    (void)arg;
+    relay_run(g_host_port);
+    return 0;
+}
+#else
+static void *relay_thread_main(void *arg) {
+    (void)arg;
+    relay_run(g_host_port);
+    return NULL;
+}
+#endif
+
+int client_run_host(const char *port) {
+    snprintf(g_host_port, sizeof(g_host_port), "%s", port);
+
+#ifdef _WIN32
+    HANDLE h = CreateThread(NULL, 0, relay_thread_main, NULL, 0, NULL);
+    if (h == NULL) {
+        fprintf(stderr, "не удалось запустить relay-поток\n");
+        return 1;
+    }
+    CloseHandle(h);
+#else
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, relay_thread_main, NULL) != 0) {
+        fprintf(stderr, "не удалось запустить relay-поток\n");
+        return 1;
+    }
+    pthread_detach(tid);
+#endif
+
+    // Даём relay время подняться, затем подключаемся к нему локально.
+    net_sleep_ms(300);
+    printf("relay поднят на порту %s; второй участник пусть подключается\n", port);
+    printf("к твоему адресу (например, Tailscale 100.x.y.z) на порт %s\n", port);
+    fflush(stdout);
+    return client_run("127.0.0.1", port);
 }
