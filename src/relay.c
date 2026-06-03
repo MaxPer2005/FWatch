@@ -117,7 +117,12 @@ static void serve_pair(socket_t a, socket_t b) {
                 net_send_all(dst, msg, (int)strlen(msg));
                 return;
             }
-            net_send_all(dst, buf, n);
+            if (net_send_all(dst, buf, n) != 0) {
+                printf("[relay] клиент %c недоступен (ошибка отправки)\n",
+                       i == 0 ? 'B' : 'A');
+                fflush(stdout);
+                return;
+            }
             printf("[relay] %c -> %c (%d байт)\n",
                    i == 0 ? 'A' : 'B', i == 0 ? 'B' : 'A', n);
             fflush(stdout);

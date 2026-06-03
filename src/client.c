@@ -13,8 +13,12 @@
   #include <pthread.h>
 #endif
 
-// Один байт протокола: "нажат пробел".
-#define MSG_SPACE 0x01
+// Байты протокола.
+#define MSG_SPACE     0x01  // нажат пробел
+#define MSG_HEARTBEAT 0x00  // пульс: держит NAT-маршрут живым, принимающий игнорит
+
+// Интервал тишины, после которого шлём пульс (мс).
+#define HEARTBEAT_MS 20000
 
 // Сокет связи с relay (меняется при переподключении) — под защитой g_lock,
 // т.к. читается из main thread (отправка) и пишется из сетевого потока.
@@ -107,6 +111,7 @@ static void net_recv_loop(void) {
         }
 
         net_configure_socket(s);
+        net_set_recv_timeout(s, HEARTBEAT_MS);
         LOCK();
         g_sock = s;
         UNLOCK();
@@ -124,7 +129,18 @@ static void net_recv_loop(void) {
                     continue;
                 }
 #endif
-                n = 0;
+                if (net_last_recv_was_timeout()) {
+                    // Тишина: шлём пульс. Если отправка не прошла — соединение
+                    // мёртво, идём на переподключение.
+                    unsigned char hb = MSG_HEARTBEAT;
+                    LOCK();
+                    int ok = (net_send_all(s, &hb, 1) == 0);
+                    UNLOCK();
+                    if (ok) {
+                        continue;
+                    }
+                }
+                n = 0; // реальная ошибка
             }
             if (n == 0) {
                 fprintf(stderr, "<< соединение с сервером потеряно, переподключение...\n");
@@ -140,6 +156,7 @@ static void net_recv_loop(void) {
                     fflush(stdout);
                     input_simulate_space();
                 }
+                // MSG_HEARTBEAT и прочее игнорируем.
             }
         }
     }

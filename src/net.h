@@ -46,4 +46,12 @@ int net_send_all(socket_t s, const void *buf, int len);
 // Блокирующая пауза на указанное число миллисекунд (для backoff).
 void net_sleep_ms(int ms);
 
+// Ставит таймаут на recv (SO_RCVTIMEO). По истечении recv вернёт ошибку
+// EAGAIN/EWOULDBLOCK (POSIX) или WSAETIMEDOUT (Windows) — используется для
+// периодического heartbeat'а, чтобы NAT не ронял неактивное соединение.
+void net_set_recv_timeout(socket_t s, int ms);
+
+// true, если последняя ошибка recv — это таймаут (а не реальный обрыв).
+int net_last_recv_was_timeout(void);
+
 #endif // NET_H
