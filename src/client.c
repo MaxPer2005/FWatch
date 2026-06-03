@@ -14,12 +14,20 @@
   #include <pthread.h>
 #endif
 
-// Байты протокола.
-#define MSG_SPACE     0x01  // нажат пробел
-#define MSG_HEARTBEAT 0x00  // пульс: держит NAT-маршрут живым, принимающий игнорит
+// Протокол: 1 байт.
+//   0x00         = heartbeat (держит NAT-маршрут живым, принимающий игнорит)
+//   0x01..0x03   = клавиша: байт = sync_key_t + 1 (пробел / ← / →)
+#define MSG_HEARTBEAT 0x00
 
 // Интервал тишины, после которого шлём пульс (мс).
 #define HEARTBEAT_MS 20000
+
+// Человекочитаемые имена клавиш для логов (индекс = sync_key_t).
+static const char *KEY_NAMES[SYNC_KEY_COUNT] = {"пробел", "←", "→"};
+
+static inline unsigned char key_to_byte(sync_key_t k) {
+    return (unsigned char)(k + 1);
+}
 
 // Сокет связи с relay (меняется при переподключении) — под защитой g_lock,
 // т.к. читается из main thread (отправка) и пишется из сетевого потока.
@@ -43,16 +51,16 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 // ---- callback платформенного слоя (main thread, только реальные нажатия) ----
 // Антицикл обеспечивает сам платформенный слой (тегирование эмулированных
 // событий), поэтому сюда попадают лишь настоящие нажатия пользователя.
-static void on_local_space(void) {
-    unsigned char b = MSG_SPACE;
+static void on_local_key(sync_key_t key) {
+    unsigned char b = key_to_byte(key);
     LOCK();
     socket_t s = g_sock;
     int ok = (s != INVALID_SOCK) && (net_send_all(s, &b, 1) == 0);
     UNLOCK();
     if (s == INVALID_SOCK) {
-        printf(">> пробел не отправлен: нет связи (идёт переподключение)\n");
+        printf(">> %s не отправлен: нет связи (идёт переподключение)\n", KEY_NAMES[key]);
     } else if (ok) {
-        printf(">> отправил пробел\n");
+        printf(">> отправил %s\n", KEY_NAMES[key]);
     } else {
         fprintf(stderr, ">> ошибка отправки (идёт переподключение)\n");
     }
@@ -60,10 +68,10 @@ static void on_local_space(void) {
 }
 
 // Тестовый режим: локальное нажатие -> сразу эмулировать обратно.
-static void on_test_space(void) {
-    printf("перехватил пробел, эмулирую обратно\n");
+static void on_test_key(sync_key_t key) {
+    printf("перехватил %s, эмулирую обратно\n", KEY_NAMES[key]);
     fflush(stdout);
-    input_simulate_space();
+    input_simulate_key(key);
 }
 
 // Подключается к relay. Возвращает сокет или INVALID_SOCK.
@@ -118,7 +126,7 @@ static void net_recv_loop(void) {
         UNLOCK();
         idx = 0;
         printf("подключился к %s:%s\n", g_server_ip, g_port);
-        printf("готов: нажми пробел\n");
+        printf("готов: пробел = play/pause, ←/→ = перемотка\n");
         fflush(stdout);
 
         for (;;) {
@@ -152,12 +160,14 @@ static void net_recv_loop(void) {
                 break;
             }
             for (int i = 0; i < n; i++) {
-                if (buf[i] == MSG_SPACE) {
-                    printf("<< получил пробел\n");
+                unsigned char b = buf[i];
+                if (b >= 1 && b <= SYNC_KEY_COUNT) {
+                    sync_key_t key = (sync_key_t)(b - 1);
+                    printf("<< получил %s\n", KEY_NAMES[key]);
                     fflush(stdout);
-                    input_simulate_space();
+                    input_simulate_key(key);
                 }
-                // MSG_HEARTBEAT и прочее игнорируем.
+                // MSG_HEARTBEAT (0x00) и прочее игнорируем.
             }
         }
     }
@@ -202,7 +212,7 @@ int client_run(const char *server_ip, const char *port) {
     snprintf(g_server_ip, sizeof(g_server_ip), "%s", server_ip);
     snprintf(g_port, sizeof(g_port), "%s", port);
 
-    if (input_init(on_local_space) != 0) {
+    if (input_init(on_local_key) != 0) {
         fprintf(stderr, "не удалось инициализировать перехват клавиатуры\n");
         net_cleanup();
         return 1;
@@ -222,11 +232,11 @@ int client_run(const char *server_ip, const char *port) {
 }
 
 int client_run_test(void) {
-    if (input_init(on_test_space) != 0) {
+    if (input_init(on_test_key) != 0) {
         fprintf(stderr, "не удалось инициализировать перехват клавиатуры\n");
         return 1;
     }
-    printf("тестовый режим: нажми пробел, он эмулируется обратно\n");
+    printf("тестовый режим: нажми пробел или ←/→ — они эмулируются обратно\n");
     printf("(Ctrl+C для выхода)\n");
     fflush(stdout);
     input_run_loop();

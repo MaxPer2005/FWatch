@@ -5,16 +5,17 @@
 #include "input.h"
 #include <stdio.h>
 
-int input_init(on_space_pressed_fn callback) {
+int input_init(on_key_fn callback) {
     (void)callback;
     fprintf(stderr,
-            "режимы client/test не поддерживаются на этой платформе\n"
+            "режимы client/host/test не поддерживаются на этой платформе\n"
             "(перехват клавиатуры реализован только для macOS и Windows).\n"
             "используй этот бинарник в режиме relay.\n");
     return 1;
 }
 
-void input_simulate_space(void) {
+void input_simulate_key(sync_key_t key) {
+    (void)key;
 }
 
 void input_run_loop(void) {

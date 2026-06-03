@@ -3,19 +3,47 @@
 #include "input.h"
 
 #include <stdio.h>
+#include <time.h>
+#include <dispatch/dispatch.h>
 #include <ApplicationServices/ApplicationServices.h>
 
-// keycode пробела на macOS.
-#define KEY_SPACE 49
+// keycode'ы macOS для синхронизируемых клавиш (индекс = sync_key_t).
+static const int KEYCODES[SYNC_KEY_COUNT] = {
+    49,  // SYNC_KEY_SPACE
+    123, // SYNC_KEY_LEFT
+    124, // SYNC_KEY_RIGHT
+};
 
 // Метка наших собственных (эмулированных) событий. Реальные нажатия имеют
 // userData = 0, поэтому по этой метке мы надёжно отличаем эхо от ввода
 // пользователя — без флагов и гонок между потоками.
 #define SYNTHETIC_TAG 0x53504143454B4559LL // "SPACEKEY"
 
-static on_space_pressed_fn g_callback = NULL;
+// Запасная защита от эха: если тег вдруг прочитался неверно (гонка при
+// межпоточном CGEventPost), всё равно подавляем нажатие, пришедшее в течение
+// окна сразу после нашей собственной эмуляции этой же клавиши.
+#define ECHO_GUARD_MS 200.0
+
+static on_key_fn g_callback = NULL;
 static CFMachPortRef g_tap = NULL;
 static CGEventSourceRef g_source = NULL;
+static double g_last_emulate_ms[SYNC_KEY_COUNT];
+
+static double now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1.0e6;
+}
+
+// Возвращает sync_key_t по keycode или -1.
+static int keycode_to_key(int64_t keycode) {
+    for (int i = 0; i < SYNC_KEY_COUNT; i++) {
+        if (KEYCODES[i] == keycode) {
+            return i;
+        }
+    }
+    return -1;
+}
 
 // Колбэк event tap: вызывается для каждого нажатия клавиши.
 static CGEventRef tap_callback(CGEventTapProxy proxy, CGEventType type,
@@ -35,15 +63,19 @@ static CGEventRef tap_callback(CGEventTapProxy proxy, CGEventType type,
     if (type == kCGEventKeyDown) {
         int64_t keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
         int64_t tag = CGEventGetIntegerValueField(event, kCGEventSourceUserData);
-        // Пропускаем наши собственные эмулированные пробелы (антицикл).
-        if (keycode == KEY_SPACE && tag != SYNTHETIC_TAG && g_callback) {
-            g_callback();
+        int key = keycode_to_key(keycode);
+        if (key >= 0 && g_callback) {
+            int ours = (tag == SYNTHETIC_TAG) ||
+                       (now_ms() - g_last_emulate_ms[key] < ECHO_GUARD_MS);
+            if (!ours) {
+                g_callback((sync_key_t)key);
+            }
         }
     }
     return event;
 }
 
-int input_init(on_space_pressed_fn callback) {
+int input_init(on_key_fn callback) {
     g_callback = callback;
 
     // Источник событий с меткой — все созданные из него события несут наш тег.
@@ -75,15 +107,31 @@ int input_init(on_space_pressed_fn callback) {
     return 0;
 }
 
-void input_simulate_space(void) {
-    // Из помеченного источника — событие будет распознано как наше и не уйдёт
+// Собственно эмуляция. Выполняется ВСЕГДА на главном потоке (там же, где
+// крутится event tap), поэтому нет межпоточной гонки CGEventPost и проблем
+// видимости g_last_emulate_ms.
+static void do_emulate(sync_key_t key) {
+    int keycode = KEYCODES[key];
+    g_last_emulate_ms[key] = now_ms(); // окно для запасной защиты от эха
+    // Из помеченного источника — событие распознаётся как наше и не уходит
     // обратно в сеть. Если источник создать не удалось, используем NULL.
-    CGEventRef down = CGEventCreateKeyboardEvent(g_source, KEY_SPACE, true);
-    CGEventRef up = CGEventCreateKeyboardEvent(g_source, KEY_SPACE, false);
+    CGEventRef down = CGEventCreateKeyboardEvent(g_source, (CGKeyCode)keycode, true);
+    CGEventRef up = CGEventCreateKeyboardEvent(g_source, (CGKeyCode)keycode, false);
     CGEventPost(kCGHIDEventTap, down);
     CGEventPost(kCGHIDEventTap, up);
     CFRelease(down);
     CFRelease(up);
+}
+
+void input_simulate_key(sync_key_t key) {
+    if (key < 0 || key >= SYNC_KEY_COUNT) {
+        return;
+    }
+    // Вызывается из сетевого потока — переносим эмуляцию на главный поток
+    // (run loop сам обслуживает main queue внутри CFRunLoopRun).
+    dispatch_async(dispatch_get_main_queue(), ^{
+        do_emulate(key);
+    });
 }
 
 void input_run_loop(void) {
