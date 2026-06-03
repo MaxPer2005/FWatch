@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef _WIN32
+  #include <windows.h>
+#endif
+
 static void usage(const char *prog) {
     fprintf(stderr,
             "использование:\n"
@@ -14,6 +18,10 @@ static void usage(const char *prog) {
 }
 
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    // Консоль Windows по умолчанию не UTF-8 — иначе русские строки в кракозябрах.
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     if (argc < 2) {
         usage(argv[0]);
         return 2;
