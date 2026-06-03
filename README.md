@@ -4,6 +4,26 @@
 пробел — у второго эмулируется нажатие пробела, и наоборот. Связь идёт через
 простой TCP-relay сервер.
 
+## Быстрая установка (одной командой)
+
+Скачивает готовый бинарь и сразу подключается к relay-серверу.
+
+**macOS** (Terminal):
+```sh
+curl -fsSL https://raw.githubusercontent.com/MaxPer2005/FWatch/main/install.sh | bash
+```
+
+**Windows** (PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/MaxPer2005/FWatch/main/install.ps1 | iex
+```
+
+> **macOS, первый запуск:** система попросит разрешение Accessibility. Зайди в
+> *System Settings → Privacy & Security → Accessibility*, включи свой терминал
+> и запусти снова: `~/.local/bin/sync client 91.228.153.31 9000`.
+
+Запусти команду на обоих компьютерах — и пробел синхронизируется между ними.
+
 ## Режимы
 
 ```
